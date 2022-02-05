@@ -93,53 +93,6 @@ final class SerialTokenProviderTests: XCTestCase {
     }
 }
 
-public actor SerialUpdatingValue<Value> where Value: Sendable {
-    private var latestValue: Value?
-    private var isUpdating = false
-    private var callbacks: [(Value) -> Void] = []
-    
-    private let isValid: @Sendable (Value) -> Bool
-    private let getUpdatedValue: @Sendable () async -> Value
-    
-    // MARK: -
-    
-    public init(
-        isValid: @escaping @Sendable (Value) -> Bool = { _ in true },
-        getUpdatedValue: @escaping @Sendable () async -> Value
-    ) {
-        self.isValid = isValid
-        self.getUpdatedValue = getUpdatedValue
-    }
-    
-    public func getValue() async -> Value {
-        await withCheckedContinuation({ cont in
-            append(callback: cont.resume(returning:))
-        })
-    }
-    
-    // MARK: -
-    
-    private func append(callback: @escaping (Value) -> Void) {
-        if let value = latestValue, isValid(value) {
-            return callback(value)
-        } else {
-            callbacks.append(callback)
-            guard !isUpdating else { return }
-            latestValue = nil
-            isUpdating = true
-            Task {
-                let updatedValue = await getUpdatedValue()
-                latestValue = updatedValue
-                isUpdating = false
-                for callback in callbacks {
-                    callback(updatedValue)
-                }
-                callbacks = []
-            }
-        }
-    }
-}
-
 extension SerialUpdatingValue where Value == Token {
     
     static func tokenProvider(
