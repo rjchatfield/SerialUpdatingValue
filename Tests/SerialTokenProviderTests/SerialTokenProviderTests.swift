@@ -1,26 +1,33 @@
 import XCTest
 @testable import SerialTokenProvider
 
+@MainActor var fetchAttempts = 0
+
 final class SerialTokenProviderTests: XCTestCase {
 
+    @MainActor
     func testExample() throws {
         let FETCH_TIMEINTERVAL: TimeInterval = 0.5
-        let TOKEN_TIMEOUT_TIMEINERVAL: TimeInterval = 1.0
-        var fetchAttempts = 0
+        let TOKEN_TIMEOUT_TIMEINTERVAL: TimeInterval = 1.0
         
-        let provider = TokenProvider(getNewTokenFromMK: {
-            Deferred {
-                Future { completion in
-                    fetchAttempts += 1
-                    print("🌥 fetching \(fetchAttempts)...")
-                    DispatchQueue.main.asyncAfter(deadline: .now() + FETCH_TIMEINTERVAL) {
-                        print("🌥  ...fetched \(fetchAttempts)!")
-                        completion(.success(Token(expires: Date().addingTimeInterval(TOKEN_TIMEOUT_TIMEINERVAL))))
+        let provider = SerialUpdatingValue.tokenProvider(
+            getNewTokenFromMK: {
+                Deferred {
+                    Future { completion in
+                        Task { @MainActor in
+                            fetchAttempts += 1
+                            let i = fetchAttempts
+                            print("🌥 fetching \(i)...")
+                            DispatchQueue.main.asyncAfter(deadline: .now() + FETCH_TIMEINTERVAL) {
+                                print("🌥  ...fetched \(i)!")
+                                completion(.success(Token(expires: Date().addingTimeInterval(TOKEN_TIMEOUT_TIMEINTERVAL))))
+                            }
+                        }
                     }
                 }
+                .eraseToAnyPublisher()
             }
-            .eraseToAnyPublisher()
-        })
+        )
         
         let exps1 = [
             runExample(provider: provider),
@@ -42,7 +49,7 @@ final class SerialTokenProviderTests: XCTestCase {
         ]
 
         XCTAssertEqual(fetchAttempts, 1)
-        sleep(seconds: TOKEN_TIMEOUT_TIMEINERVAL)
+        sleep(seconds: TOKEN_TIMEOUT_TIMEINTERVAL)
         XCTAssertEqual(fetchAttempts, 1)
         
         let exps4 = [
@@ -56,15 +63,16 @@ final class SerialTokenProviderTests: XCTestCase {
     }
     
     var i = 0
-    func runExample(provider: TokenProvider) -> XCTestExpectation {
+    @MainActor
+    func runExample(provider: SerialUpdatingValue<Token>) -> XCTestExpectation {
         self.i += 1
         let i = self.i
         let exp = expectation(description: "wait for \(i)")
         print("🧐", i, "Dispatching async")
         DispatchQueue.global().async {
-            Task.detached(priority: TaskPriority.medium) {
+            Task.detached(priority: TaskPriority.medium) { [provider] in
                 print("🧐", i, " Inside Task: getting token...")
-                let token = try await provider.getToken()
+                let token = await provider.getValue()
                 print("🧐", i, "  got token:", token)
                 exp.fulfill()
             }
@@ -85,47 +93,73 @@ final class SerialTokenProviderTests: XCTestCase {
     }
 }
 
-actor TokenProvider {
+public actor SerialUpdatingValue<Value> where Value: Sendable {
+    private var latestValue: Value?
+    private var isUpdating = false
+    private var callbacks: [(Value) -> Void] = []
     
-    private let newTokenFromMK: AnyPublisher<Token, Error>
-    private var isFetching = false
-    private var latestToken: Token?
-    private var callbacks: [(Result<Token, Error>) -> Void] = []
+    private let isValid: @Sendable (Value) -> Bool
+    private let getUpdatedValue: @Sendable () async -> Value
     
-    init(getNewTokenFromMK: @escaping () -> AnyPublisher<Token, Error>) {
-        self.newTokenFromMK = getNewTokenFromMK()
+    // MARK: -
+    
+    public init(
+        isValid: @escaping @Sendable (Value) -> Bool = { _ in true },
+        getUpdatedValue: @escaping @Sendable () async -> Value
+    ) {
+        self.isValid = isValid
+        self.getUpdatedValue = getUpdatedValue
     }
     
-    func getToken() async throws -> Token {
-        try await withCheckedThrowingContinuation({ cont in
-            append(callback: { (result: Result<Token, Error>) in
-                cont.resume(with: result)
-            })
+    public func getValue() async -> Value {
+        await withCheckedContinuation({ cont in
+            append(callback: cont.resume(returning:))
         })
     }
     
-    private func append(callback: @escaping (Result<Token, Error>) -> Void) {
-        if let token = latestToken, token.isValid {
-            return callback(.success(token))
+    // MARK: -
+    
+    private func append(callback: @escaping (Value) -> Void) {
+        if let value = latestValue, isValid(value) {
+            return callback(value)
         } else {
             callbacks.append(callback)
-            guard !isFetching else { return }
-            latestToken = nil
-            isFetching = true
+            guard !isUpdating else { return }
+            latestValue = nil
+            isUpdating = true
             Task {
-                for try await newToken in newTokenFromMK.values {
-                    self.latestToken = newToken
-                    self.isFetching = false
-                    let _callbacks = callbacks
-                    callbacks = []
-                    for callback in _callbacks {
-                        callback(.success(newToken))
-                    }
-                    return
+                let updatedValue = await getUpdatedValue()
+                latestValue = updatedValue
+                isUpdating = false
+                for callback in callbacks {
+                    callback(updatedValue)
                 }
-                assertionFailure("Left for loop and Future didn't throw or return a value")
+                callbacks = []
             }
         }
+    }
+}
+
+extension SerialUpdatingValue where Value == Token {
+    
+    static func tokenProvider(
+        getNewTokenFromMK: @escaping @Sendable () -> AnyPublisher<Token, Error>
+    ) -> Self {
+        Self(
+            isValid: { token in
+                token.isValid
+            },
+            getUpdatedValue: { () async -> Token in
+                do {
+                    for try await newToken in getNewTokenFromMK().values {
+                        return newToken
+                    }
+                    preconditionFailure("Left for loop and Future didn't throw or return a value")
+                } catch {
+                    preconditionFailure(error.localizedDescription)
+                }
+            }
+        )
     }
 }
 
@@ -133,7 +167,7 @@ import Combine
 
 extension String: Error {}
 
-struct Token {
+ struct Token {
     let count = count
     let expires: Date
     
@@ -147,3 +181,6 @@ struct Token {
         return _count
     }
 }
+
+extension Date: @unchecked Sendable {}
+extension XCTestExpectation: @unchecked Sendable {}

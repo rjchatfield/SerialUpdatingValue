@@ -24,9 +24,23 @@ let package = Package(
         // Targets can depend on other targets in this package, and on products in packages this package depends on.
         .target(
             name: "SerialTokenProvider",
-            dependencies: []),
+            dependencies: [],
+            swiftSettings: [
+                .unsafeFlags([
+                    "-Xfrontend", "-warn-concurrency",
+                    "-Xfrontend", "-enable-actor-data-race-checks",
+                ])
+            ]
+        ),
         .testTarget(
             name: "SerialTokenProviderTests",
-            dependencies: ["SerialTokenProvider"]),
+            dependencies: ["SerialTokenProvider"],
+            swiftSettings: [
+                .unsafeFlags([
+                    "-Xfrontend", "-warn-concurrency",
+                    "-Xfrontend", "-enable-actor-data-race-checks",
+                ])
+            ]
+        ),
     ]
 )
