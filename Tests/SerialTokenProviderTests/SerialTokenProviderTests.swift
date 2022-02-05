@@ -48,6 +48,7 @@ actor TokenProvider {
     
     let newTokenFromMK: AnyPublisher<Token, Error>
     var latestToken: Token?
+    var cancellables = Set<AnyCancellable>()
     
     init(getNewTokenFromMK: @escaping () -> AnyPublisher<Token, Error>) {
         self.newTokenFromMK = getNewTokenFromMK()
@@ -59,10 +60,25 @@ actor TokenProvider {
 //            throw "Left for loop and Future didn't throw or return a value"
 //        }
 //        return first
-        for try await token in newTokenFromMK.values {
-            return token
+//        for try await token in newTokenFromMK.values {
+//            return token
+//        }
+//        throw "Left for loop and Future didn't throw or return a value"
+        try await withCheckedThrowingContinuation { cont in
+            newTokenFromMK
+                .first()
+                .sink { (completion: Subscribers.Completion<Error>) in
+                    switch completion {
+                    case .finished:
+                        break
+                    case .failure(let error):
+                        cont.resume(throwing: error)
+                    }
+                } receiveValue: { token in
+                    cont.resume(returning: token)
+                }
+                .store(in: &cancellables)
         }
-        throw "Left for loop and Future didn't throw or return a value"
     }
 }
 
