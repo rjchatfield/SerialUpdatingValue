@@ -1,46 +1,26 @@
 import XCTest
 @testable import SerialTokenProvider
 
-@MainActor var fetchAttempts = 0
+let FETCH_TIMEINTERVAL: TimeInterval = 0.5
+let TOKEN_TIMEOUT_TIMEINTERVAL: TimeInterval = 1.0
 
 final class SerialTokenProviderTests: XCTestCase {
+    
+    func testExample() async {
+        let provider = mkTokenProvider
 
-    @MainActor
-    func testExample() throws {
-        let FETCH_TIMEINTERVAL: TimeInterval = 0.5
-        let TOKEN_TIMEOUT_TIMEINTERVAL: TimeInterval = 1.0
-        
-        let provider = SerialUpdatingValue.tokenProvider(
-            getNewTokenFromMK: {
-                Deferred {
-                    Future { completion in
-                        Task { @MainActor in
-                            fetchAttempts += 1
-                            let i = fetchAttempts
-                            print("🌥 fetching \(i)...")
-                            DispatchQueue.main.asyncAfter(deadline: .now() + FETCH_TIMEINTERVAL) {
-                                print("🌥  ...fetched \(i)!")
-                                completion(.success(Token(expires: Date().addingTimeInterval(TOKEN_TIMEOUT_TIMEINTERVAL))))
-                            }
-                        }
-                    }
-                }
-                .eraseToAnyPublisher()
-            }
-        )
-        
         let exps1 = [
             runExample(provider: provider),
             runExample(provider: provider),
         ]
-        
+
         sleep(seconds: 0.1)
-        
+
         let exps2 = [
             runExample(provider: provider),
-//            runExample(provider: provider),
+            runExample(provider: provider),
         ]
-        
+
         sleep(seconds: FETCH_TIMEINTERVAL)
 
         let exps3 = [
@@ -51,31 +31,44 @@ final class SerialTokenProviderTests: XCTestCase {
         XCTAssertEqual(fetchAttempts, 1)
         sleep(seconds: TOKEN_TIMEOUT_TIMEINTERVAL)
         XCTAssertEqual(fetchAttempts, 1)
-        
+
         let exps4 = [
             runExample(provider: provider),
             runExample(provider: provider),
         ]
 
         wait(for: exps1 + exps2 + exps3 + exps4, timeout: 10_000)
-        
+
         XCTAssertEqual(fetchAttempts, 2)
     }
+
+    func test1() async {
+        let provider = mkTokenProvider
+        let exp = runExample(provider: provider)
+        wait(for: [exp], timeout: 1)
+        XCTAssertEqual(fetchAttempts, 1)
+    }
+
+    func testLots() async {
+        let provider = mkTokenProvider
+        let exps = (1...100).map { _ in runExample(provider: provider) }
+        wait(for: exps, timeout: 10_000)
+        XCTAssertEqual(fetchAttempts, 1)
+    }
     
+    // MARK: -
+
     var i = 0
-    @MainActor
     func runExample(provider: SerialUpdatingValue<Token>) -> XCTestExpectation {
         self.i += 1
         let i = self.i
         let exp = expectation(description: "wait for \(i)")
         print("🧐", i, "Dispatching async")
-        DispatchQueue.global().async {
-            Task.detached(priority: TaskPriority.medium) { [provider] in
-                print("🧐", i, " Inside Task: getting token...")
-                let token = await provider.value
-                print("🧐", i, "  got token:", token)
-                exp.fulfill()
-            }
+        Task.detached(priority: TaskPriority.medium) { [provider] in
+            print("🧐", i, " Inside Task: getting token...")
+            let token = await provider.value
+            print("🧐", i, "  got token:", token)
+            exp.fulfill()
         }
         return exp
     }
@@ -90,6 +83,33 @@ final class SerialTokenProviderTests: XCTestCase {
             sleepExp.fulfill()
         }
         wait(for: [sleepExp], timeout: 10000)
+    }
+    
+    override func setUp() {
+        fetchAttempts = 0
+        Token._count = 0
+        self.i = 0
+        self.sleepCount = 0
+    }
+    
+    var fetchAttempts = 0
+    var mkTokenProvider: SerialUpdatingValue<Token> {
+        SerialUpdatingValue.tokenProvider(
+            getNewTokenFromMK: { [self] in
+                Deferred {
+                    Future { completion in
+                        fetchAttempts += 1
+                        let i = fetchAttempts
+                        print("🌥 fetching \(i)...")
+                        DispatchQueue.main.asyncAfter(deadline: .now() + FETCH_TIMEINTERVAL) {
+                            print("🌥  ...fetched \(i)!")
+                            completion(.success(Token(expires: Date().addingTimeInterval(TOKEN_TIMEOUT_TIMEINTERVAL))))
+                        }
+                    }
+                }
+                .eraseToAnyPublisher()
+            }
+        )
     }
 }
 
@@ -128,8 +148,8 @@ extension String: Error {}
         Date() < expires
     }
     
-    private static var _count = 0
-    private static var count: Int {
+    static var _count = 0
+    static var count: Int {
         _count += 1
         return _count
     }
