@@ -47,11 +47,19 @@ final class SerialTokenProviderTests: XCTestCase {
 actor TokenProvider {
     
     let newTokenFromMK: AnyPublisher<Token, Error>
+
+    var stream: AsyncStream<Token>!
+    var tokenStreamContinuation: AsyncStream<Token>.Continuation!
+    
+    var isFetching = false
     var latestToken: Token?
-    var cancellables = Set<AnyCancellable>()
+    var cancellable: AnyCancellable?
     
     init(getNewTokenFromMK: @escaping () -> AnyPublisher<Token, Error>) {
         self.newTokenFromMK = getNewTokenFromMK()
+//        self.stream = AsyncStream { [self] cont in
+//            self.tokenStreamContinuation = cont
+//        }
     }
     
     func getToken() async throws -> Token {
@@ -60,24 +68,41 @@ actor TokenProvider {
 //            throw "Left for loop and Future didn't throw or return a value"
 //        }
 //        return first
+
 //        for try await token in newTokenFromMK.values {
 //            return token
 //        }
 //        throw "Left for loop and Future didn't throw or return a value"
-        try await withCheckedThrowingContinuation { cont in
-            newTokenFromMK
-                .first()
-                .sink { (completion: Subscribers.Completion<Error>) in
-                    switch completion {
-                    case .finished:
-                        break
-                    case .failure(let error):
-                        cont.resume(throwing: error)
-                    }
-                } receiveValue: { token in
-                    cont.resume(returning: token)
-                }
-                .store(in: &cancellables)
+
+//        try await withCheckedThrowingContinuation { cont in
+//            newTokenFromMK
+//                .first()
+//                .sink { (completion: Subscribers.Completion<Error>) in
+//                    switch completion {
+//                    case .finished:
+//                        break
+//                    case .failure(let error):
+//                        cont.resume(throwing: error)
+//                    }
+//                } receiveValue: { token in
+//                    cont.resume(returning: token)
+//                }
+//                .store(in: &cancellables)
+//        }
+        
+//        for await token in stream {
+//            return token
+//        }
+//        throw "Left for loop and Future didn't throw or return a value"
+        
+        if let token = latestToken, token.isValid {
+            return token
+        } else {
+            for try await newToken in newTokenFromMK.values {
+                self.latestToken = newToken
+                return newToken
+            }
+            throw "Left for loop and Future didn't throw or return a value"
         }
     }
 }
@@ -87,9 +112,16 @@ import Combine
 extension String: Error {}
 
 struct Token {
+    let count = count
     let expires: Date
     
     var isValid: Bool {
         Date() < expires
+    }
+    
+    private static var _count = 0
+    private static var count: Int {
+        _count += 1
+        return _count
     }
 }
