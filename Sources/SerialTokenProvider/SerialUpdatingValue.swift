@@ -20,12 +20,7 @@ public actor SerialUpdatingValue<Value> where Value: Sendable {
     
     private var callbacks: [@Sendable (Value) -> Void] = []
     
-    private var updateTask: Task<(), Never>? {
-        willSet {
-            // TODO: Is cancellation safe? We'll have incomplete `withUnsafeContinuation`?
-            updateTask?.cancel()
-        }
-    }
+    private var updateTask: Task<(), Never>?
     
     // MARK: - Life cycle
     
@@ -39,7 +34,7 @@ public actor SerialUpdatingValue<Value> where Value: Sendable {
     
     deinit {
         callbacks = [] // release to avoid retail cycles
-        updateTask = nil // cancel
+        updateTask?.cancel() // cancel
     }
     
     // MARK: - Public API
