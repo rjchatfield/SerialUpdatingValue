@@ -28,10 +28,12 @@ public actor SerialUpdatingValue<Value> where Value: Sendable {
     
     // MARK: - Public API
     
-    public func getValue() async -> Value {
-        await withCheckedContinuation({ cont in
-            append(callback: cont.resume(returning:))
-        })
+    public var value: Value {
+        get async {
+            await withCheckedContinuation({ cont in
+                append(callback: cont.resume(returning:))
+            })
+        }
     }
     
     // MARK: - Private methods
@@ -40,6 +42,7 @@ public actor SerialUpdatingValue<Value> where Value: Sendable {
         if let value = latestValue, isValid(value) {
             return callback(value)
         } else {
+            latestValue = nil
             callbacks.append(callback)
             guard !isUpdating else { return }
             latestValue = nil

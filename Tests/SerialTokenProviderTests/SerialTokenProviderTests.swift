@@ -72,7 +72,7 @@ final class SerialTokenProviderTests: XCTestCase {
         DispatchQueue.global().async {
             Task.detached(priority: TaskPriority.medium) { [provider] in
                 print("🧐", i, " Inside Task: getting token...")
-                let token = await provider.getValue()
+                let token = await provider.value
                 print("🧐", i, "  got token:", token)
                 exp.fulfill()
             }
