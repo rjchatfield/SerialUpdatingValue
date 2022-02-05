@@ -54,9 +54,10 @@ actor TokenProvider {
     }
     
     func getToken() async throws -> Token {
-//        let values = getTokenFromMK().values
-//        let nonNilValues = values.compactMap({ $0 })
-//        let first = try await nonNilValues.first(where: { _ in true })
+//        let values = newTokenFromMK.values
+//        guard let first = try await values.first(where: { _ in true }) else {
+//            throw "Left for loop and Future didn't throw or return a value"
+//        }
 //        return first
         for try await token in newTokenFromMK.values {
             return token
