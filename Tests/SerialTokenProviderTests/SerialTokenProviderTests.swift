@@ -6,6 +6,38 @@ let TOKEN_TIMEOUT_TIMEINTERVAL: TimeInterval = 1.0
 
 final class SerialTokenProviderTests: XCTestCase {
     
+    func testAsyncLet8() async {
+        let provider = mkTokenProvider
+        async let t1 = provider.value
+        async let t2 = provider.value
+        async let t3 = provider.value
+        async let t4 = provider.value
+        async let t5 = provider.value
+        async let t6 = provider.value
+        async let t7 = provider.value
+        async let t8 = provider.value
+        _ = await (t1, t2, t3, t4, t5, t6, t7, t8)
+        XCTAssertEqual(fetchAttempts, 1)
+    }
+    
+    func testTaskGroup100() async {
+        let tokens = await withTaskGroup(of: Token.self) { group -> [Token] in
+            let provider = mkTokenProvider
+            for _ in 1...100 {
+                group.addTask(priority: TaskPriority?.none) {
+                    await provider.value
+                }
+            }
+            var result: [Token] = []
+            while let token = await group.next() {
+                result.append(token)
+            }
+            return result
+        }
+        XCTAssertEqual(tokens.count, 100)
+        XCTAssertEqual(fetchAttempts, 1)
+    }
+    
     func testExample() async {
         let provider = mkTokenProvider
 
