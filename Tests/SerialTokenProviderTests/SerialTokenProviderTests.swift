@@ -23,16 +23,18 @@ final class SerialTokenProviderTests: XCTestCase {
             runExample(i: 2, provider: provider),
             runExample(i: 3, provider: provider),
         ], timeout: 100)
+        
+        XCTAssertEqual(fetchAttempts, 1)
     }
     
     func runExample(i: Int, provider: TokenProvider) -> XCTestExpectation {
         let exp = expectation(description: "wait for \(i)")
-        print(i, "...")
+        print("🧐", i, "...")
         DispatchQueue.global().async {
             Task.detached(priority: TaskPriority.medium) {
-                print(i, " getting token...")
+                print("🧐", i, " getting token...")
                 let token = try await provider.getToken()
-                print(i, "  got token", token)
+                print("🧐", i, "  got token:", token)
                 exp.fulfill()
             }
         }
@@ -42,11 +44,11 @@ final class SerialTokenProviderTests: XCTestCase {
 
 actor TokenProvider {
     
-    let getNewTokenFromMK: () -> AnyPublisher<Token, Error>
+    let newTokenFromMK: AnyPublisher<Token, Error>
     var latestToken: Token?
     
     init(getNewTokenFromMK: @escaping () -> AnyPublisher<Token, Error>) {
-        self.getNewTokenFromMK = getNewTokenFromMK
+        self.newTokenFromMK = getNewTokenFromMK()
     }
     
     func getToken() async throws -> Token {
@@ -54,7 +56,7 @@ actor TokenProvider {
 //        let nonNilValues = values.compactMap({ $0 })
 //        let first = try await nonNilValues.first(where: { _ in true })
 //        return first
-        for try await token in getNewTokenFromMK().values {
+        for try await token in newTokenFromMK.values {
             return token
         }
         throw "Left for loop and Future didn't throw or return a value"
