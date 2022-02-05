@@ -9,30 +9,30 @@ final class SerialTokenProviderTests: XCTestCase {
     func testExample() async {
         let provider = mkTokenProvider
 
-        let exps1 = [
+        let exps1: [XCTestExpectation] = [
             runExample(provider: provider),
             runExample(provider: provider),
         ]
 
         sleep(seconds: 0.1)
 
-        let exps2 = [
+        let exps2: [XCTestExpectation] = [
             runExample(provider: provider),
             runExample(provider: provider),
         ]
 
         sleep(seconds: FETCH_TIMEINTERVAL)
 
-        let exps3 = [
+        let exps3: [XCTestExpectation] = [
             runExample(provider: provider),
             runExample(provider: provider),
         ]
 
         XCTAssertEqual(fetchAttempts, 1)
-        sleep(seconds: TOKEN_TIMEOUT_TIMEINTERVAL)
+        sleep(seconds: TOKEN_TIMEOUT_TIMEINTERVAL + 1)
         XCTAssertEqual(fetchAttempts, 1)
 
-        let exps4 = [
+        let exps4: [XCTestExpectation] = [
             runExample(provider: provider),
             runExample(provider: provider),
         ]

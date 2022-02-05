@@ -6,10 +6,26 @@ public actor SerialUpdatingValue<Value> where Value: Sendable {
     private let isValid: @Sendable (Value) -> Bool
     private let getUpdatedValue: @Sendable () async -> Value
     
-    private var latestValue: Value?
-    private var callbacks: [(Value) -> Void] = []
-    private var isUpdating = false
-    private var updateTask: Task<(), Never>? { willSet { updateTask?.cancel() } }
+    private var latestValue: Value? {
+        didSet {
+            guard let updatedValue = latestValue else { return }
+            for callback in callbacks {
+                Task {
+                    callback(updatedValue)
+                }
+            }
+            callbacks = []
+        }
+    }
+    
+    private var callbacks: [@Sendable (Value) -> Void] = []
+    
+    private var updateTask: Task<(), Never>? {
+        willSet {
+            // TODO: Is cancellation safe? We'll have incomplete `withUnsafeContinuation`?
+            updateTask?.cancel()
+        }
+    }
     
     // MARK: - Life cycle
     
@@ -22,39 +38,34 @@ public actor SerialUpdatingValue<Value> where Value: Sendable {
     }
     
     deinit {
-        callbacks = []
-        updateTask = nil
+        callbacks = [] // release to avoid retail cycles
+        updateTask = nil // cancel
     }
     
     // MARK: - Public API
     
     public var value: Value {
         get async {
-            await withCheckedContinuation({ cont in
-                append(callback: cont.resume(returning:))
-            })
+            await withUnsafeContinuation { cont in
+                append(callback: { [cont] value in
+                    cont.resume(returning: value)
+                })
+            }
         }
     }
     
     // MARK: - Private methods
     
-    private func append(callback: @escaping (Value) -> Void) {
+    private func append(callback: @escaping @Sendable (Value) -> Void) {
         if let value = latestValue, isValid(value) {
             return callback(value)
         } else {
-            latestValue = nil
-            callbacks.append(callback)
-            guard !isUpdating else { return }
-            latestValue = nil
-            isUpdating = true
+            latestValue = nil // clear out invalid value
+            callbacks.append(callback) // enqueue callback
+            guard updateTask == nil else { return } // task is already running, will be called back from other callback
             updateTask = Task {
-                let updatedValue = await getUpdatedValue()
-                latestValue = updatedValue
-                isUpdating = false
-                for callback in callbacks {
-                    callback(updatedValue)
-                }
-                callbacks = []
+                latestValue =  await getUpdatedValue()
+                updateTask = nil
             }
         }
     }
