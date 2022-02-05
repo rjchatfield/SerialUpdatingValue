@@ -7,12 +7,14 @@ final class SerialTokenProviderTests: XCTestCase {
         var fetchAttempts = 0
         
         let provider = TokenProvider(getNewTokenFromMK: {
-            Future { completion in
-                fetchAttempts += 1
-                print("🌥 fetching \(fetchAttempts)...")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-                    print("🌥  ...fetched \(fetchAttempts)!")
-                    completion(.success(Token(expires: Date().addingTimeInterval(100))))
+            Deferred {
+                Future { completion in
+                    fetchAttempts += 1
+                    print("🌥 fetching \(fetchAttempts)...")
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                        print("🌥  ...fetched \(fetchAttempts)!")
+                        completion(.success(Token(expires: Date().addingTimeInterval(100))))
+                    }
                 }
             }
             .eraseToAnyPublisher()
@@ -24,7 +26,7 @@ final class SerialTokenProviderTests: XCTestCase {
             runExample(i: 3, provider: provider),
         ], timeout: 100)
         
-        XCTAssertEqual(fetchAttempts, 1)
+        XCTAssertEqual(fetchAttempts, 3)
     }
     
     func runExample(i: Int, provider: TokenProvider) -> XCTestExpectation {
