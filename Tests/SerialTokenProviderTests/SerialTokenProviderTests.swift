@@ -6,7 +6,7 @@ let TOKEN_TIMEOUT_TIMEINTERVAL: TimeInterval = 1.0
 
 final class SerialTokenProviderTests: XCTestCase {
     
-    func testAsyncLet8() async {
+    func testAsyncLet8() async throws {
         let provider = mkTokenProvider
         async let t1 = provider.value
         async let t2 = provider.value
@@ -16,21 +16,21 @@ final class SerialTokenProviderTests: XCTestCase {
         async let t6 = provider.value
         async let t7 = provider.value
         async let t8 = provider.value
-        _ = await (t1, t2, t3, t4, t5, t6, t7, t8)
+        _ = try await (t1, t2, t3, t4, t5, t6, t7, t8)
         XCTAssertEqual(fetchAttempts, 1)
     }
     
-    func testTaskGroup100() async {
-        let tokens = await withTaskGroup(of: Token.self) { group -> [Token] in
+    func testTaskGroup100() async throws {
+        let tokens = await withTaskGroup(of: Token?.self) { group -> [Token] in
             let provider = mkTokenProvider
             for _ in 1...100 {
                 group.addTask(priority: TaskPriority?.none) {
-                    await provider.value
+                    try? await provider.value
                 }
             }
             var result: [Token] = []
-            while let token = await group.next() {
-                result.append(token)
+            while let optional = await group.next(), let value = optional {
+                result.append(value)
             }
             return result
         }
@@ -98,7 +98,7 @@ final class SerialTokenProviderTests: XCTestCase {
         print("🧐", i, "Dispatching async")
         Task.detached(priority: TaskPriority.medium) { [provider] in
             print("🧐", i, " Inside Task: getting token...")
-            let token = await provider.value
+            let token = try await provider.value
             print("🧐", i, "  got token:", token)
             exp.fulfill()
         }
