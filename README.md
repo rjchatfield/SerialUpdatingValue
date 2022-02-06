@@ -16,8 +16,16 @@ A recent Twitter thread inspired the investigation: https://twitter.com/layoutSu
 
 Locally cache an auth token, providing concurrent access, lazy fetching, and re-fetching if no longer valid. 
 
-- An actor that has a single get method/property
-- Fetch a value from an outside source (today I use Futures, but this will use an async function)
-- Once fetched, cache it locally for better performance in subsequent requests
-- Include a way to invalidate the locally cached value
-- No concurrency warnings 
+- Using an `actor` for thread-safety 
+- Generic over a `Value`
+- Has a single getter method/property to get an up to date `Value`
+- The value is fetched by a caller-defined async function
+- Lazily fetch the first value upon first request
+- While fetching, all subsequent requests must also await the fetch value
+- Once fetched, cache it in-memory for faster performance in subsequent requests
+- Include a way to invalidate the locally cached value, requiring the value to be re-fetched if invalid
+- No concurrency warnings!
+
+## Discussion
+
+More discussion about this on the Swift Forums: https://forums.swift.org/t/rfc-using-swift-concurrency-as-a-serial-blocking-queue/55135
