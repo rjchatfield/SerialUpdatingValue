@@ -1,4 +1,4 @@
-/// Thread -safe access to a lazily retrieved value, with optional validity checking
+/// Thread-safe access to a lazily retrieved value, with optional validity checking
 public actor SerialUpdatingValue<Value> where Value: Sendable {
     
     // MARK: - Properties
