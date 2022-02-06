@@ -1,13 +1,11 @@
 import XCTest
 @testable import SerialTokenProvider
-
-let FETCH_TIMEINTERVAL: TimeInterval = 0.5
-let TOKEN_TIMEOUT_TIMEINTERVAL: TimeInterval = 1.0
+import Combine
 
 final class SerialTokenProviderTests: XCTestCase {
     
     func testAsyncLet8() async throws {
-        let provider = mkTokenProvider
+        let provider = tokenProvider
         async let t1 = provider.value
         async let t2 = provider.value
         async let t3 = provider.value
@@ -22,7 +20,7 @@ final class SerialTokenProviderTests: XCTestCase {
     
     func testTaskGroup100() async throws {
         let tokens = await withTaskGroup(of: Token?.self) { group -> [Token] in
-            let provider = mkTokenProvider
+            let provider = tokenProvider
             for _ in 1...100 {
                 group.addTask(priority: TaskPriority?.none) {
                     try? await provider.value
@@ -38,8 +36,22 @@ final class SerialTokenProviderTests: XCTestCase {
         XCTAssertEqual(fetchAttempts, 1)
     }
     
-    func testExample() async {
-        let provider = mkTokenProvider
+    func testMessy1() async {
+        let provider = tokenProvider
+        let exp = runExample(provider: provider)
+        wait(for: [exp], timeout: 1)
+        XCTAssertEqual(fetchAttempts, 1)
+    }
+
+    func testMessyLots() async {
+        let provider = tokenProvider
+        let exps = (1...100).map { _ in runExample(provider: provider) }
+        wait(for: exps, timeout: 10_000)
+        XCTAssertEqual(fetchAttempts, 1)
+    }
+    
+    func testMessyExample() async {
+        let provider = tokenProvider
 
         let exps1: [XCTestExpectation] = [
             runExample(provider: provider),
@@ -74,26 +86,21 @@ final class SerialTokenProviderTests: XCTestCase {
         XCTAssertEqual(fetchAttempts, 2)
     }
 
-    func test1() async {
-        let provider = mkTokenProvider
-        let exp = runExample(provider: provider)
-        wait(for: [exp], timeout: 1)
-        XCTAssertEqual(fetchAttempts, 1)
-    }
-
-    func testLots() async {
-        let provider = mkTokenProvider
-        let exps = (1...100).map { _ in runExample(provider: provider) }
-        wait(for: exps, timeout: 10_000)
-        XCTAssertEqual(fetchAttempts, 1)
+    // MARK: - Life cycle
+    
+    override func setUp() {
+        fetchAttempts = 0
+        Token._count = 0
+        self.exampleCount = 0
+        self.sleepCount = 0
     }
     
-    // MARK: -
+    // MARK: - Helpers
 
-    var i = 0
-    func runExample(provider: SerialUpdatingValue<Token>) -> XCTestExpectation {
-        self.i += 1
-        let i = self.i
+    private var exampleCount = 0
+    private func runExample(provider: SerialUpdatingValue<Token>) -> XCTestExpectation {
+        self.exampleCount += 1
+        let i = self.exampleCount
         let exp = expectation(description: "wait for \(i)")
         print("🧐", i, "Dispatching async")
         Task.detached(priority: TaskPriority.medium) { [provider] in
@@ -105,8 +112,8 @@ final class SerialTokenProviderTests: XCTestCase {
         return exp
     }
     
-    var sleepCount = 0
-    func sleep(seconds: TimeInterval) {
+    private var sleepCount = 0
+    private func sleep(seconds: TimeInterval) {
         self.sleepCount += 1
         let i = self.sleepCount
         let sleepExp = expectation(description: "sleep \(i)")
@@ -116,61 +123,45 @@ final class SerialTokenProviderTests: XCTestCase {
         }
         wait(for: [sleepExp], timeout: 10000)
     }
-    
-    override func setUp() {
-        fetchAttempts = 0
-        Token._count = 0
-        self.i = 0
-        self.sleepCount = 0
-    }
-    
-    var fetchAttempts = 0
-    var mkTokenProvider: SerialUpdatingValue<Token> {
-        SerialUpdatingValue.tokenProvider(
-            getNewTokenFromMK: { [self] in
-                Deferred {
-                    Future { completion in
-                        fetchAttempts += 1
-                        let i = fetchAttempts
-                        print("🌥 fetching \(i)...")
-                        DispatchQueue.main.asyncAfter(deadline: .now() + FETCH_TIMEINTERVAL) {
-                            print("🌥  ...fetched \(i)!")
-                            completion(.success(Token(expires: Date().addingTimeInterval(TOKEN_TIMEOUT_TIMEINTERVAL))))
-                        }
-                    }
-                }
-                .eraseToAnyPublisher()
-            }
-        )
-    }
-}
 
-extension SerialUpdatingValue where Value == Token {
-    
-    static func tokenProvider(
-        getNewTokenFromMK: @escaping @Sendable () -> AnyPublisher<Token, Error>
-    ) -> Self {
-        Self(
+    private var tokenProvider: SerialUpdatingValue<Token> {
+        SerialUpdatingValue(
             isValid: { token in
                 token.isValid
             },
-            getUpdatedValue: { () async -> Token in
-                do {
-                    for try await newToken in getNewTokenFromMK().values {
-                        return newToken
-                    }
-                    preconditionFailure("Left for loop and Future didn't throw or return a value")
-                } catch {
-                    preconditionFailure(error.localizedDescription)
+            getUpdatedValue: { [self] in
+                /// Bridge between Combine API to a Async/Throwing function
+                for try await newToken in self.getToken().values {
+                    return newToken
                 }
+                throw "Left for loop and Future didn't throw or return a value"
             }
         )
     }
+    
+    private var fetchAttempts = 0
+    private func getToken() -> AnyPublisher<Token, Error> {
+        Deferred { [self] in
+            Future { completion in
+                self.fetchAttempts += 1
+                let i = self.fetchAttempts
+                print("🌥 fetching \(i)...")
+                DispatchQueue.main.asyncAfter(deadline: .now() + FETCH_TIMEINTERVAL) {
+                    print("🌥  ...fetched \(i)!")
+                    completion(.success(Token(expires: Date().addingTimeInterval(TOKEN_TIMEOUT_TIMEINTERVAL))))
+                }
+            }
+        }
+        .eraseToAnyPublisher()
+    }
 }
 
-import Combine
+let FETCH_TIMEINTERVAL: TimeInterval = 0.5
+let TOKEN_TIMEOUT_TIMEINTERVAL: TimeInterval = 1.0
 
 extension String: Error {}
+extension Date: @unchecked Sendable {}
+extension XCTestExpectation: @unchecked Sendable {}
 
  struct Token {
     let count = count
@@ -186,6 +177,3 @@ extension String: Error {}
         return _count
     }
 }
-
-extension Date: @unchecked Sendable {}
-extension XCTestExpectation: @unchecked Sendable {}
