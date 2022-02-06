@@ -1,8 +1,8 @@
 import XCTest
-@testable import SerialTokenProvider
+@testable import SerialUpdatingValue
 import Combine
 
-final class SerialTokenProviderTests: XCTestCase {
+final class SerialUpdatingValueTests: XCTestCase {
     
     func testAsyncLet8() async throws {
         let provider = tokenProvider
