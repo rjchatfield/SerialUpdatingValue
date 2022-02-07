@@ -30,7 +30,7 @@ public actor SerialUpdatingValue<Value> where Value: Sendable {
             } else {
                 let taskHandle = Task { try await getUpdatedValue() }
                 self.taskHandle = taskHandle
-                return try await self.value /// recursively check `isValid`
+                return try await taskHandle.value
             }
         }
     }
