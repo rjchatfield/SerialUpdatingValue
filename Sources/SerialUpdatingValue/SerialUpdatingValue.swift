@@ -50,7 +50,7 @@ public actor SerialUpdatingValue<Value> where Value: Sendable {
         if case .success(let value) = latestValue, isValid(value) {
             return callback(.success(value))
         } else {
-            /// There is no valid value, so must get a new value and
+            /// There is no valid value, so must get a new value
             latestValue = nil /// clear out invalid value
             callbackQueue.append(callback) /// enqueue callback
             guard taskHandle == nil else { return } /// task is already running, will be called back from other callback
