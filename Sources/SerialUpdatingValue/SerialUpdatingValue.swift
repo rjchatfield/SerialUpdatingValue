@@ -5,10 +5,7 @@ public actor SerialUpdatingValue<Value> where Value: Sendable {
     
     private let isValid: @Sendable (Value) -> Bool
     private let getUpdatedValue: @Sendable () async throws -> Value
-    
-    private var latestValue: Result<Value, Error>?
-    private var continuationQueue: [CheckedContinuation<Value, Error>] = []
-    private var taskHandle: Task<(), Never>?
+    private var taskHandle: Task<Value, Error>?
     
     // MARK: - Life cycle
     
@@ -23,60 +20,19 @@ public actor SerialUpdatingValue<Value> where Value: Sendable {
         self.getUpdatedValue = getUpdatedValue
     }
     
-    deinit {
-        /// Not sure if there is a valid case when an Actor could
-        taskHandle?.cancel() /// cancel long-running update task
-        update(.failure(SerialUpdatingValueError.actorDeallocated)) /// flush callbacks
-    }
-    
     // MARK: - Public API
     
     /// Will get up-to-date value
     public var value: Value {
         get async throws {
-            try await withCheckedThrowingContinuation(append(continuation:))
-        }
-    }
-    
-    // MARK: - Private methods
-    
-    private func append(
-        continuation: CheckedContinuation<Value, Error>
-    ) {
-        if case .success(let value) = latestValue, isValid(value) {
-            return continuation.resume(returning: value)
-        } else {
-            /// There is no valid value, so must get a new value
-            latestValue = nil /// clear out invalid value
-            continuationQueue.append(continuation) /// enqueue continuation
-            guard taskHandle == nil else { return } /// task is already running, will be called back from other callback
-            taskHandle = Task {
-                let newValue: Result<Value, Error>
-                do {
-                    newValue = .success(try await getUpdatedValue())
-                } catch is CancellationError {
-                    return /// Task may be cancelled during dealloc and callbacks will be handled differently
-                } catch {
-                    newValue = .failure(error)
-                }
-                guard !Task.isCancelled else {
-                    return /// Task may be cancelled during dealloc and callbacks will be handled differently
-                }
-                update(newValue)
-                taskHandle = nil
+            if let value = try? await taskHandle?.value, isValid(value) {
+                return value
+            } else {
+                let taskHandle = Task { try await getUpdatedValue() }
+                self.taskHandle = taskHandle
+                return try await self.value /// recursively check `isValid`
             }
         }
-    }
-    
-    private func update(
-        _ updatedValue: Result<Value, Error>
-    ) {
-        latestValue = updatedValue
-        /// Call all callbacks
-        for continuation in continuationQueue {
-            continuation.resume(with: updatedValue)
-        }
-        continuationQueue.removeAll() /// Note: all of this method is executed synchronously without suspension. Reentrancy will not occur, so this is safe to empty out after the callbacks are called
     }
 }
 
