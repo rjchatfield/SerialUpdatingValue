@@ -14,8 +14,9 @@ final class SerialUpdatingValueTests: XCTestCase {
         async let t6 = provider.value
         async let t7 = provider.value
         async let t8 = provider.value
-        _ = try await (t1, t2, t3, t4, t5, t6, t7, t8)
+        let tokens = try await [t1, t2, t3, t4, t5, t6, t7, t8]
         XCTAssertEqual(fetchAttempts, 1)
+        XCTAssertEqual(Set(tokens).count, 1)
     }
     
     func testTaskGroup100() async throws {
@@ -34,6 +35,33 @@ final class SerialUpdatingValueTests: XCTestCase {
         }
         XCTAssertEqual(tokens.count, 100)
         XCTAssertEqual(fetchAttempts, 1)
+        XCTAssertEqual(Set(tokens).count, 1)
+    }
+    
+    func testCancel() async throws {
+        let provider = tokenProvider
+        let task1 = Task { try await provider.value }
+        let task2 = Task { try await provider.value }
+        let task3 = Task { try await provider.value }
+        task2.cancel()
+        let t1 = try await task1.value
+        let t2 = await task2.result
+        let t3 = try await task3.value
+        XCTAssertEqual(fetchAttempts, 1)
+        XCTAssertEqual(t1, t3)
+        XCTAssert(t2.isCancellationError)
+    }
+    
+    func testFailure() async throws {
+        let provider = failingTokenProvider
+        let task1 = Task { try await provider.value }
+        let task2 = Task { try await provider.value }
+        let (t1, t2) = await (task1.result, task2.result)
+        let t3 = await Task { try await provider.value }.result
+        XCTAssertEqual(t1.stringError, "TokenProvider attempt 1 failed")
+        XCTAssertEqual(t2.stringError, "TokenProvider attempt 1 failed")
+        XCTAssertEqual(t3.stringError, "TokenProvider attempt 2 failed")
+        XCTAssertEqual(fetchAttempts, 2)
     }
     
     func testMessy1() async {
@@ -89,8 +117,8 @@ final class SerialUpdatingValueTests: XCTestCase {
     // MARK: - Life cycle
     
     override func setUp() {
-        fetchAttempts = 0
         Token._count = 0
+        self.fetchAttempts = 0
         self.exampleCount = 0
         self.sleepCount = 0
     }
@@ -135,6 +163,16 @@ final class SerialUpdatingValueTests: XCTestCase {
                     return newToken
                 }
                 throw "Left for loop and Future didn't throw or return a value"
+            }
+        )
+    }
+    
+    private var failingTokenProvider: SerialUpdatingValue<Token> {
+        SerialUpdatingValue(
+            isValid: { _ in true },
+            getUpdatedValue: { [self] in
+                self.fetchAttempts += 1
+                throw "TokenProvider attempt \(self.fetchAttempts) failed"
             }
         )
     }

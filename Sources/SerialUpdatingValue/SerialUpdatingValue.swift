@@ -25,19 +25,27 @@ public actor SerialUpdatingValue<Value> where Value: Sendable {
     /// Will get up-to-date value
     public var value: Value {
         get async throws {
-            if let value = try? await taskHandle?.value, isValid(value) {
-                return value
-            } else {
-                let taskHandle = Task { try await getUpdatedValue() }
-                self.taskHandle = taskHandle
-                return try await taskHandle.value
+            /// Check for in-flight task, return value only if still valid, rethrow error and reset state
+            if let taskHandle = taskHandle {
+                do {
+                    let value = try await taskHandle.value
+                    try Task.checkCancellation()
+                    if isValid(value) {
+                        return value
+                    }
+                } catch let cancellationError as CancellationError {
+                    /// If this child-task is cancelled, don't nil out `taskHandle` so next caller can still get value
+                    throw cancellationError
+                } catch {
+                    /// If in-flight task returns an error, rethrow error and nil out `taskHandle` so next caller will get updated value
+                    self.taskHandle = nil
+                    throw error
+                }
             }
+            /// Else, there is no valid value & now requires updated value
+            let taskHandle = Task { try await getUpdatedValue() }
+            self.taskHandle = taskHandle
+            return try await taskHandle.value /// Assumes new values are valid
         }
     }
-}
-
-// MARK: -
-
-private enum SerialUpdatingValueError: Error {
-    case actorDeallocated
 }
