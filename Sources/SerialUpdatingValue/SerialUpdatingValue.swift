@@ -34,8 +34,7 @@ public actor SerialUpdatingValue<Value> where Value: Sendable {
     /// Will get up-to-date value
     public var value: Value {
         get async throws {
-            /// Using "unsafe" to capture `continuation` outside of scope
-            try await withUnsafeThrowingContinuation { continuation in
+            try await withCheckedThrowingContinuation { continuation in
                 append(callback: { [continuation] result in
                     continuation.resume(with: result)
                 })
