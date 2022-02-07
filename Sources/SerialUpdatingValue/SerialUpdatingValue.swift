@@ -7,7 +7,7 @@ public actor SerialUpdatingValue<Value> where Value: Sendable {
     private let getUpdatedValue: @Sendable () async throws -> Value
     
     private var latestValue: Result<Value, Error>?
-    private var callbackQueue: [@Sendable (Result<Value, Error>) -> Void] = []
+    private var continuationQueue: [CheckedContinuation<Value, Error>] = []
     private var taskHandle: Task<(), Never>?
     
     // MARK: - Life cycle
@@ -34,25 +34,21 @@ public actor SerialUpdatingValue<Value> where Value: Sendable {
     /// Will get up-to-date value
     public var value: Value {
         get async throws {
-            try await withCheckedThrowingContinuation { continuation in
-                append(callback: { [continuation] result in
-                    continuation.resume(with: result)
-                })
-            }
+            try await withCheckedThrowingContinuation(append(continuation:))
         }
     }
     
     // MARK: - Private methods
     
     private func append(
-        callback: @escaping @Sendable (Result<Value, Error>) -> Void
+        continuation: CheckedContinuation<Value, Error>
     ) {
         if case .success(let value) = latestValue, isValid(value) {
-            return callback(.success(value))
+            return continuation.resume(returning: value)
         } else {
             /// There is no valid value, so must get a new value
             latestValue = nil /// clear out invalid value
-            callbackQueue.append(callback) /// enqueue callback
+            continuationQueue.append(continuation) /// enqueue continuation
             guard taskHandle == nil else { return } /// task is already running, will be called back from other callback
             taskHandle = Task {
                 let newValue: Result<Value, Error>
@@ -77,10 +73,10 @@ public actor SerialUpdatingValue<Value> where Value: Sendable {
     ) {
         latestValue = updatedValue
         /// Call all callbacks
-        for callback in callbackQueue {
-            callback(updatedValue)
+        for continuation in continuationQueue {
+            continuation.resume(with: updatedValue)
         }
-        callbackQueue.removeAll() /// Note: all of this method is executed synchrnously without suspension. Reentrancy will not occur, so this is safe to empty out after the callbacks are called
+        continuationQueue.removeAll() /// Note: all of this method is executed synchronously without suspension. Reentrancy will not occur, so this is safe to empty out after the callbacks are called
     }
 }
 
