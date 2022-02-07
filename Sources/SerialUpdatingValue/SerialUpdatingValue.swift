@@ -24,7 +24,7 @@ public actor SerialUpdatingValue<Value> where Value: Sendable {
     }
     
     deinit {
-        /// Not if there is a valid case when an Actor could
+        /// Not sure if there is a valid case when an Actor could
         taskHandle?.cancel() /// cancel long-running update task
         update(.failure(SerialUpdatingValueError.actorDeallocated)) /// flush callbacks
     }
@@ -77,11 +77,10 @@ public actor SerialUpdatingValue<Value> where Value: Sendable {
     ) {
         latestValue = updatedValue
         /// Call all callbacks
-        let _callbacks = self.callbackQueue
-        self.callbackQueue = [] /// empty out queue before calling out to avoid possible reentrancy behaviour
-        for callback in _callbacks {
+        for callback in callbackQueue {
             callback(updatedValue)
         }
+        callbackQueue.removeAll() /// Note: all of this method is executed synchrnously without suspension. Reentrancy will not occur, so this is safe to empty out after the callbacks are called
     }
 }
 
