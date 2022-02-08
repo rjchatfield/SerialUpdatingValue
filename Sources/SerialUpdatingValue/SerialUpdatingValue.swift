@@ -25,27 +25,43 @@ public actor SerialUpdatingValue<Value> where Value: Sendable {
     /// Will get up-to-date value
     public var value: Value {
         get async throws {
-            /// Check for in-flight task, return value only if still valid, rethrow error and reset state
-            if let taskHandle = taskHandle {
-                do {
-                    let value = try await taskHandle.value
-                    try Task.checkCancellation()
-                    if isValid(value) {
-                        return value
-                    }
-                } catch let cancellationError as CancellationError {
-                    /// If this child-task is cancelled, don't nil out `taskHandle` so next caller can still get value
-                    throw cancellationError
-                } catch {
-                    /// If in-flight task returns an error, rethrow error and nil out `taskHandle` so next caller will get updated value
-                    self.taskHandle = nil
-                    throw error
-                }
+            if let latestValue = try await latestValue, isValid(latestValue) {
+                /// May throw if:
+                /// - `getUpdatedValue()` returned an error
+                /// - Task was cancelled
+                return latestValue
+                
+            } else {
+                /// There is no valid value & now requires updated value. Either:
+                /// - `taskHandle` was `nil`
+                /// - `value` is no longer valid
+                /// - `getUpdatedValue()` returned an error
+                taskHandle = Task { try await getUpdatedValue() }
+                return try await self.value /// use recursion to check `isValid` and cancellation
             }
-            /// Else, there is no valid value & now requires updated value
-            let taskHandle = Task { try await getUpdatedValue() }
-            self.taskHandle = taskHandle
-            return try await self.value /// use recursion to check `isValid` and cancellation
+        }
+    }
+    
+    // MARK: - Private methods
+    
+    /// Check for in-flight task and return value. Will rethrow error and reset state.
+    private var latestValue: Value? {
+        get async throws {
+            guard let taskHandle = taskHandle else { return nil }
+            do {
+                let value = try await taskHandle.value
+                try Task.checkCancellation()
+                return value
+                
+            } catch let cancellationError as CancellationError {
+                /// If this child-task is cancelled, don't nil out `taskHandle` so next caller can still get value
+                throw cancellationError
+                
+            } catch {
+                /// If in-flight task returns an error, rethrow error and nil out `taskHandle` so next caller will get updated value
+                self.taskHandle = nil
+                throw error
+            }
         }
     }
 }
