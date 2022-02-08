@@ -45,7 +45,7 @@ public actor SerialUpdatingValue<Value> where Value: Sendable {
             /// Else, there is no valid value & now requires updated value
             let taskHandle = Task { try await getUpdatedValue() }
             self.taskHandle = taskHandle
-            return try await taskHandle.value /// Assumes new values are valid
+            return try await self.value /// use recursion to check `isValid` and cancellation
         }
     }
 }
