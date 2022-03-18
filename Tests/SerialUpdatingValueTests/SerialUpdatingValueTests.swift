@@ -2,7 +2,7 @@ import XCTest
 @testable import SerialUpdatingValue
 import Combine
 
-final class SerialUpdatingValueTests: XCTestCase {
+final class SerialUpdatingValueTests: XCTestCase, @unchecked Sendable {
     
     func testAsyncLet8() async throws {
         let provider = tokenProvider
